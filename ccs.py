@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # Copyright (c) 2022 Chris Anley All Rights Reserved
-import regex
-import sys
-import signal
 import os
+import signal
+import sys
+
+import regex
 
 # Code Credential Scanner
 
@@ -97,56 +98,101 @@ PWD = r'''[^;<$\n\s'"]'''
 NON_PWD = r'''[;<$\n\s'"]'''
 GUID_LOWER = r'''[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}'''
 CLIENT_SECRET = r'''[a-zA-Z0-9_~\-\%/\+\=]{22,300}'''
+EMAIL_ADDR = r'''[.\-_a-zA-Z0-9]{1,80}\@(?:[a-z0-9][a-z0-9-]{1,80}\.){1,}[a-z]{1,10}'''
 
 # Regexes we use to extract likely passwords
-# if password is quoted, capture with quote-nonquote-quote
-# otherwise, catpure with (nonquote) nonpassword terminator char
 
 pwd_rules = [
-    (regex.compile(r'(.*)(AKIA[A-Z0-9]{16})([^A-Z0-9].*)'), 1, 20, None),  # AWS Access Key
-    (regex.compile(r'(.*\W)(xox[abpr]-' + PWD + '{20,})(' + NON_PWD + '.*)'), 2, 20, None),  # Slack access token
-    (regex.compile(r'(.*)(\$\da?\$\w{1,99}\$' + PWD + r'*)(' + NON_PWD + r'.*)'), 3, 20, None),  # password hash $2a$10$...
-    (regex.compile(r'(.*://\w+:)([^@]*)(@.*)'), 4, 20, None),  # xyz://user:pass@
-    (regex.compile(r'("\w+@(?:\w+\.)+\w+:)([^"/]+)(")'), 5, 20, None),  # "x@y.com:pass"
-    (regex.compile(r'((?i).*<ApiKey[^>]*>)(' + PWD + '+)(' + NON_PWD + '.*)'), 6, 20, None),
-    (regex.compile(r'((?i).*ApiKey\s*[=:]\s*")([^"]*)(".*)'), 7, 20, None),
-    (regex.compile(r'((?i).*ApiKey"[^"]+")([^"]*)(".*)'), 8, 20, None),
-    (regex.compile(r'((?i).*<ApiSecret[^>]*>)(' + PWD + '*)(' + NON_PWD + '.*)'), 9, 20, None),
-    (regex.compile(r'((?i).*AccountKey\s*[=:])(' + PWD + '*)(' + NON_PWD + '.*)'), 10, 20, None),
-    (regex.compile(r'(.*Authorization: (?:Basic|Bearer)\s+)(' + PWD + '*)(' + NON_PWD + '.*)'), 11, 20, None),
-    (regex.compile(r'((?i).*NetworkCredential\s*\(\s*"[^"]*"\s*,\s*")([^"]*)(".*)'), 12, 20, None),
-    (regex.compile(r'((?i).*_pass\s*[\!\=]?\=\s*")([^"\n]+)("[^\n]*)'), 13, 20, None),  # _pass != / == "foo"
-    (regex.compile(r'''((?i).*_passwd\s*[=:]\s*["'])([^"'\n]+)(["'][^\n]*)'''), 14, 20, None),
-    (regex.compile(r'((?i).*auth_token\s*[=:]\s*)(' + PWD + '*)(' + NON_PWD + '.*)'), 15, 20, None),
-    (regex.compile(r'((?i).*password\s*[=:]\s*)(' + PWD + '*)(' + NON_PWD + '.*)'), 16, 20, regex.compile(r'(?i)\.ya?ml')),  # xxxpassword : asdf
-    (regex.compile(r'''((?i).*password\s*[=:]\s*["'])([^"'\n]+)(["'][^\n]*)'''), 17, 20, None),  # xxxpassword : 'asdf'
-    (regex.compile(r'''((?i).*password\s*[\!\=]\=\s*['"])([^'"\n]+)(['"][^\n]*)'''), 18, 20, None),  # password != / == "foo"
-    (regex.compile(r'''((?i).*"password\w*"[:\=\s]+")([^"\n]+)("[^\n]*)'''), 19, 20, None),  # "passwordxxx": "foo
-    (regex.compile(r'''((?i)\$password\w*\s*=*\s')([^']+)('.*)'''), 20, 20, None),
-    (regex.compile(r'''((?i)\$\w*password\s*=\s*')([^']+)('.*)'''), 21, 20, None),
-    (regex.compile(r'''((?i)"\w*ClientId":\s*")(''' + GUID_LOWER + r''')(".*)'''), 22, 20, None),
-    (regex.compile(r'''((?i)"\w*TenantId":\s*")(''' + GUID_LOWER + r''')(".*)'''), 23, 20, None),
-    (regex.compile(r'''((?i)"\w*ClientSecret":\s*")(''' + CLIENT_SECRET + r''')(".*)'''), 24, 20, None),
-    (regex.compile(r'''((?i)"\w*EncryptionKey":\s*")(''' + CLIENT_SECRET + r''')(".*)'''), 25, 20, None),
-    (regex.compile(r'''((?i).*(?:api|access|auth|client|secret)_key\s*:\s*)([^"\n]+)("[^\n]*)'''), 26, 20, None),  # _key: foo
-    (regex.compile(r'''((?i).*(?:api|access|auth|client|secret)_key\s*[\!\=]?\=\s*")([^"\n]+)("[^\n]*)'''), 27, 20, None),  # _key = / != / == "foo"
-    (regex.compile(r'((?i).*(?:api|access|auth|client|secret)_key\s*[\!\=]?\=\s*)(' + PWD + '+)(' + NON_PWD + '*)'), 28, 20, None),  # _key = / != / == foo
-    (regex.compile(r'''((?i).*(?:api|access|auth|client|secret)_key"\s*:\s*")([^"\n]+)("[^\n]*)'''), 29, 20, None),  # _key": "foo"
-    (regex.compile(r'''((?i).*key\s*=\s*.*GetBytes\(")([^"\n]+)("[^\n]*)'''), 30, 20, None),
-    (regex.compile(r'''((?i).*key\s*=\s*"\w*password\w*"\s+value\s*=\s*")([^"\n]{0,200})("[^\n]{0,200})'''), 31, 20, None),
-    (regex.compile(r'''((?i).*key\s*=\s*"\w+pwd"\s+value\s*=\s*")([^"\n]{0,200})("[^\n]{0,200})'''), 32, 20, None),
-    (regex.compile(r'''((?i).*key\s*=\s*"\w+secret"\s+value\s*=\s*")([^"\n]{0,200})("[^\n]{0,200})'''), 33, 20, None),
-    (regex.compile(r'''((?i).*pwd\s*[=:]\s*)([^;'"<$\n\s]*)[;'"<$\n\s](.*)'''), 34, 20, None),
-    (regex.compile(r'''((?i).*AzureStorageKey.*AccountKey\s*=\s*)([^;'"<$\n\s\\]*)([;'"<$\n\s\\].*)'''), 35, 20, None),
-    (regex.compile(r'''((?i).*secret\s*[=:]\s*)([^;'"<$\n\s]*)[;'"<$\n\s](.*)'''), 36, 20, None),
-    (regex.compile(r'''(curl.{0,200}\s-u\s*)([^\s]+)(\s.*)'''), 37, 20, None),
-    (regex.compile(r'''(mysql.{0,200}\s-p\s*)([^\s]+)(\s.*)'''), 38, 20, None),
-    (regex.compile(r'''("AUTH"[,\s]+")([^\n]{5,99})("[^\n]{0,200})'''), 39, 20, None),
-    (regex.compile(r'((?i)\w*secret\s*=\s*")(' + CLIENT_SECRET + r')(".*)'), 40, 20, None),
-    (regex.compile(r'''((?i).*api_token\s*,\s*')(''' + PWD + r'''*)('\s*''' + NON_PWD + '.*)'), 41, 20, None),
-    (regex.compile(r'''((?i)\w*API_KEY\s*=\s*")(''' + CLIENT_SECRET + r''')(".*)'''), 42, 20, None),
-    (regex.compile(r'''((?i)\w*AUTH_KEY\s*=\s*")(''' + CLIENT_SECRET + r''')(".*)'''), 43, 20, None),
-    (regex.compile(r'''((?i)\w*ACCESS_KEY\s*=\s*")(''' + CLIENT_SECRET + r''')(".*)'''), 44, 20, None),
+    # PASSWORD rules are reported first, in case we only report one result for the line
+    (regex.compile(r'(.*\W)(xox[abpr]-' + PWD + '{20,})(' + NON_PWD + '[^\n]*)'), 2, 'PASSWORD', None),  # Slack access token
+    (regex.compile(r'(.*)(\$\da?\$\w{1,99}\$' + PWD + r'*)(' + NON_PWD + r'[^\n]*)'), 3, 'PASSWORD', None),  # password hash $2a$10$...
+    (regex.compile(r'(.*://[^:\n]+:)([^@:\n/]+)(@[^\n]*)'), 4, 'PASSWORD', None),  # xyz://user:pass@
+    (regex.compile(r'("\w+@(?:\w+\.)+\w+:)([^"/]+)(")'), 5, 'PASSWORD', None),  # "x@y.com:pass"
+    (regex.compile(r'((?i).*<ApiKey[^>]*>)(' + PWD + '+)(' + NON_PWD + '.*)'), 6, 'PASSWORD', None),
+    (regex.compile(r'((?i).*ApiKey\s*[=:]\s*")([^"]*)("[^\n]*)'), 7, 'PASSWORD', None),
+    (regex.compile(r'((?i).*ApiKey"[^"]+")([^"]*)("[^\n]*)'), 8, 'PASSWORD', None),
+    (regex.compile(r'((?i).*<ApiSecret[^>]*>)(' + PWD + '*)(' + NON_PWD + '[^\n]*)'), 9, 'PASSWORD', None),
+    (regex.compile(r'((?i).*AccountKey\s*[=:])(' + PWD + '*)(' + NON_PWD + '[^\n]*)'), 10, 'PASSWORD', None),
+    (regex.compile(r'(.*Authorization: (?:Basic|Bearer)\s+)(' + PWD + '*)(' + NON_PWD + '[^\n]*)'), 11, 'PASSWORD', None),
+    (regex.compile(r'((?i).*NetworkCredential\s*\(\s*"[^"]*"\s*,\s*")([^"]*)("[^\n]*)'), 12, 'PASSWORD', None),
+    (regex.compile(r'((?i).*_pass\s*[\!\=]?\=\s*")([^"\n]+)("[^\n]*)'), 13, 'PASSWORD', None),  # _pass != / == "foo"
+    (regex.compile(r'''((?i).*_passwd\s*[=:]\s*["'])([^"'\n]+)(["'][^\n]*)'''), 14, 'PASSWORD', None),
+    (regex.compile(r'((?i).*auth_token\s*[=:]\s*)(' + PWD + '*)(' + NON_PWD + '[^\n]*)'), 15, 'PASSWORD', None),
+    (regex.compile(r'((?i).*password\s*[=:]\s*)(' + PWD + '*)(' + NON_PWD + '[^\n]*)'), 16, 'PASSWORD', regex.compile(r'(?i)\.ya?ml')),  # xxxpassword : asdf
+    (regex.compile(r'''((?i).*password\s*[=:]\s*["'])([^"'\n]+)(["'][^\n]*)'''), 17, 'PASSWORD', None),  # xxxpassword : 'asdf'
+    (regex.compile(r'''((?i).*password\s*[\!\=]\=\s*['"])([^'"\n]+)(['"][^\n]*)'''), 18, 'PASSWORD', None),  # password != / == "foo"
+    (regex.compile(r'''((?i).*"password\w*"[:\=\s]+")([^"\n]+)("[^\n]*)'''), 19, 'PASSWORD', None),  # "passwordxxx": "foo
+    (regex.compile(r'''((?i)\$password\w*\s*=*\s')([^']+)('[^\n]*)'''), 20, 'PASSWORD', None),
+    (regex.compile(r'''((?i)\$\w*password\s*=\s*')([^']+)('[^\n]*)'''), 21, 'PASSWORD', None),
+    (regex.compile(r'''((?i)"\w*ClientSecret":\s*")(''' + CLIENT_SECRET + r''')("[^\n]*)'''), 24, 'PASSWORD', None),
+    (regex.compile(r'''((?i)"\w*EncryptionKey":\s*")(''' + CLIENT_SECRET + r''')("[^\n]*)'''), 25, 'PASSWORD', None),
+    (regex.compile(r'''((?i).*(?:api|access|auth|client|secret)_key\s*:\s*)([^"\n]+)("[^\n]*)'''), 26, 'PASSWORD', None),  # _key: foo
+    (regex.compile(r'''((?i).*(?:api|access|auth|client|secret)_key\s*[\!\=]?\=\s*")([^"\n]+)("[^\n]*)'''), 27, 'PASSWORD', None),  # _key = / != / == "foo"
+    (regex.compile(r'((?i).*(?:api|access|auth|client|secret)_key\s*[\!\=]?\=\s*)(' + PWD + '{18,200})(' + NON_PWD + '*)'), 28, 'PASSWORD', None),  # _key = / != / == foo
+    (regex.compile(r'''((?i).*(?:api|access|auth|client|secret)_key"\s*:\s*")([^"\n]+)("[^\n]*)'''), 29, 'PASSWORD', None),  # _key": "foo"
+    (regex.compile(r'''((?i).*key\s*=\s*.*GetBytes\(")([^"\n]+)("[^\n]*)'''), 30, 'PASSWORD', None),
+    (regex.compile(r'''((?i).*key\s*=\s*"\w*password\w*"\s+value\s*=\s*")([^"\n]{0,200})("[^\n]{0,200})'''), 31, 'PASSWORD', None),
+    (regex.compile(r'''((?i).*key\s*=\s*"\w+pwd"\s+value\s*=\s*")([^"\n]{0,200})("[^\n]{0,200})'''), 32, 'PASSWORD', None),
+    (regex.compile(r'''((?i).*key\s*=\s*"\w+secret"\s+value\s*=\s*")([^"\n]{0,200})("[^\n]{0,200})'''), 33, 'PASSWORD', None),
+    (regex.compile(r'''((?i).*pwd\s*[=:]\s*)([^;'"<$\n\s]*)[;'"<$\n\s]([^\n]*)'''), 34, 'PASSWORD', None),
+    (regex.compile(r'''((?i).*AzureStorageKey.*AccountKey\s*=\s*)([^;'"<$\n\s\\]*)([;'"<$\n\s\\][^\n]*)'''), 35, 'PASSWORD', None),
+    (regex.compile(r'''((?i).*secret\s*[=:]\s*)([^;'"<$\n\s]*)[;'"<$\n\s](.*)'''), 36, 'PASSWORD', None),
+    (regex.compile(r'''(curl.{0,200}\s-u\s*)([^\s]+)(\s.*)'''), 37, 'PASSWORD', None),
+    (regex.compile(r'''(mysql.{0,200}\s-p\s*)([^\s]+)(\s.*)'''), 38, 'PASSWORD', None),
+    (regex.compile(r'''("AUTH"[,\s]+")([^\n]{5,99})("[^\n]{0,200})'''), 39, 'PASSWORD', None),
+    (regex.compile(r'((?i)\w*secret\s*=\s*")(' + CLIENT_SECRET + r')("[^\n]*)'), 40, 'PASSWORD', None),
+    (regex.compile(r'''((?i).*api_token\s*,\s*')(''' + PWD + r'''*)('\s*''' + NON_PWD + '[^\n]*)'), 41, 'PASSWORD', None),
+    (regex.compile(r'''((?i)\w*API_KEY\s*=\s*")(''' + CLIENT_SECRET + r''')("[^\n]*)'''), 42, 'PASSWORD', None),
+    (regex.compile(r'''((?i)\w*AUTH_KEY\s*=\s*")(''' + CLIENT_SECRET + r''')("[^\n]*)'''), 43, 'PASSWORD', None),
+    (regex.compile(r'''((?i)\w*ACCESS_KEY\s*=\s*")(''' + CLIENT_SECRET + r''')("[^\n]*)'''), 44, 'PASSWORD', None),
+    (regex.compile(r'''((?i)\w*TOKEN\s*=\s*['"])(''' + CLIENT_SECRET + r''')(['"][^\n]*)'''), 45, 'PASSWORD', None),
+    (regex.compile(r'''((?i)\w*_PASS\s*=\s*")(''' + CLIENT_SECRET + r''')("[^\n]*)'''), 46, 'PASSWORD', None),
+    (regex.compile(r'''((?i)"auth"\s*:\s*")(''' + CLIENT_SECRET + r''')("[^\n]*)'''), 47, 'PASSWORD', None),
+    (regex.compile(r'''((?i)password\s+")(\w{5,200})("[^\n]*)'''), 48, 'PASSWORD', None),
+    (regex.compile(r'''((?i)"pass"\s*:\s*")(''' + PWD + r'''{5,100})("[^\n]*)'''), 49, 'PASSWORD', None),
+    (regex.compile(r'''((?i)"passphrase"\s*:\s*")(''' + PWD + r'''{5,100})("[^\n]*)'''), 50, 'PASSWORD', None),
+    (regex.compile(r'''((?i)machine\s+[^\s]+\s+login\s+[^\s]+\s+password\s+)([^\s]+)(\s+[^\n]*)'''), 51, 'PASSWORD', None),
+    (regex.compile(r'''((?i)_auth\s*=\s*)([^\s]{5,200})([^\n]*)'''), 52, 'PASSWORD', None),
+    (regex.compile(r'''((?i)SECRET_KEY\s*=\s*)([^\s]{5,200})([^\n]*)'''), 53, 'PASSWORD', None),
+    (regex.compile(r'''((?i)\.login\('[^'\n]+',\s*')([^\s\n']{5,200})([^\n]*)'''), 54, 'PASSWORD', None),
+    (regex.compile(r'''((?i)secret_key_base:\s*)([^\s\n]{5,200})([^\n]*)'''), 55, 'PASSWORD', None),
+    (regex.compile(r'''((?i)APP_KEY\s*=\s*)([^\s\n]{5,200})([^\n]*)'''), 56, 'PASSWORD', None),
+    (regex.compile(r'''((?i)\w*_PASSWORD\s*=\s*)([^\s\n]{5,200})([^\n]*)'''), 57, 'PASSWORD', None),
+    (regex.compile(r'''(.*)(\$apr1\$\w{1,99}\$[^;<$\n\s'"]*)([^\n]*)'''), 58, 'PASSWORD', None),  # password hash $apr$salt$...
+    (regex.compile(r'''((?i)\$\w*passwd\s*=\s*')([^\s\n']{5,200})([^\n]*)'''), 59, 'PASSWORD', None),
+    (regex.compile(r'''((?i)\w*_PASSWORD',\s*')([^\s\n']{5,200})([^\n]*)'''), 60, 'PASSWORD', None),
+    (regex.compile(r'''((?i)\w*_KEY',\s*')([^\s\n']{5,200})([^\n]*)'''), 61, 'PASSWORD', None),
+    (regex.compile(r'''((?i)"encryptedPassword":\s*")([^\s\n"]{5,200})([^\n]*)'''), 62, 'PASSWORD', None),
+    (regex.compile(r'''((?i)api_key:\s*)([^\s\n"]{5,200})([^\n]*)'''), 63, 'PASSWORD', None),
+    (regex.compile(r'''(.*)(\$2y\$\d+\$[^\s\n"']{5,200})([^\n]*)'''), 64, 'PASSWORD', None),
+    (regex.compile(r'''((?i)\w*Password"\s*:\s*")([^\s\n"]{5,200})([^\n]*)'''), 65, 'PASSWORD', None),
+    (regex.compile(r'''((?i)\w*Passphrase"\s*:\s*")([^\s\n"]{5,200})([^\n]*)'''), 66, 'PASSWORD', None),
+    (regex.compile(r'''(.*)(\$\d\$[^\$]{1,40}\$[^\s\n"'"]{5,200})([^\n]*)'''), 67, 'PASSWORD', None),
+    (regex.compile(r'''((?i).*<Pass>)([^<\n]{5,200})(</Pass>[^\n]*)'''), 68, 'PASSWORD', None),
+    (regex.compile(r'''((?i).*<Pass\s+[^>]+>)([^<\n]{5,200})(</Pass>[^\n]*)'''), 69, 'PASSWORD', None),
+    (regex.compile(r'''((?i).*\w*API_KEY\s*=\s*['"]?)([^\n\s'"]{5,200})([^\n]*)'''), 81, 'PASSWORD', None),
+    (regex.compile(r'''((?i).*MLAB_PASS\s*=\s*)([^\n\s]{5,200})([^\n]*)'''), 82, 'PASSWORD', None),
+
+    # USER rules below here
+    (regex.compile(r'''((?i)"\w*ClientId":\s*")(''' + GUID_LOWER + r''')("[^\n]*)'''), 22, 'USER', None),
+    (regex.compile(r'''((?i)"\w*TenantId":\s*")(''' + GUID_LOWER + r''')("[^\n]*)'''), 23, 'USER', None),
+    (regex.compile(r'''((?i).*ACCESS_KEY_ID\s*=\s*)([^\n\s]{18,200})([^\n]*)'''), 70, 'USER', None),
+    (regex.compile(r'''((?i).*S3_BUCKET\s*=\s*)([^\n\s]{5,200})([^\n]*)'''), 71, 'USER', None),
+    (regex.compile(r'''((?i).*RDS_HOST\s*=\s*)([^\n\s]{5,200})([^\n]*)'''), 72, 'USER', None),
+    (regex.compile(r'''((?i).*MLAB_URL\s*=\s*)([^\n\s]{5,200})([^\n]*)'''), 73, 'USER', None),
+    (regex.compile(r'''((?i).*MLAB_DB\s*=\s*)([^\n\s]{5,200})([^\n]*)'''), 74, 'USER', None),
+    (regex.compile(r'''((?i).*_USERNAME\s*=\s*["'])([^\n\s"']{5,200})([^\n]*)'''), 75, 'USER', None),
+    (regex.compile(r'''((?i).*_EMAIL\s*=\s*["'])([^\n\s"']{5,200})([^\n]*)'''), 76, 'USER', None),
+    (regex.compile(r'''((?i).*hostname\s+)([^\n\s"'\.]+\.[^\n\s"'\.]+\.[^\n\s"']+)([^\n]*)'''), 77, 'USER', None),
+    (regex.compile(r'''((?i).*username\s+)([^\n\s]{5,200})([^\n]*)'''), 78, 'USER', None),
+    (regex.compile(r'''((?i).*"host"\s*:\s*)([^\n\s]{5,200})([^\n]*)'''), 79, 'USER', None),
+    (regex.compile(r'''((?i).*"user"\s*:\s*)([^\n\s]{5,200})([^\n]*)'''), 80, 'USER', None),
+    (regex.compile(r'''((?i).*MAILCHIMP_LIST_ID\s*=\s*['"])([^\n\s'"]{5,200})([^\n]*)'''), 83, 'USER', None),
+    (regex.compile(r'''((?i).*"email"\s*=\s*['"])([^\n\s'"]{5,200})([^\n]*)'''), 84, 'USER', None),
+    (regex.compile(r'(.*)(AKIA[A-Z0-9]{16})([^A-Z0-9][^\n]*)'), 1, 'USER', None),  # AWS Access Key
+    (regex.compile(r'''((?i).*\W)(''' + EMAIL_ADDR + r''')([^\n]*)'''), 85, 'USER', None),
+    (regex.compile(r'''((?i).*_USER\s*=\s*["'])([^\n\s"']{5,200})([^\n]*)'''), 86, 'USER', None),
+
 ]
 
 # Regexes we use to exclude likely false-positive passwords
@@ -154,20 +200,20 @@ pwd_rules = [
 # such as filenames, html/dom fragments, and other common string constants.
 non_password_regexes = [
     regex.compile(r'''#[0-9a-f]{6}'''),  # web colour code
+    regex.compile(r'''0x[0-9a-f]{2}'''),  # hex
     regex.compile(r'''(\%d|\%n|\%s|\%y|\%d|\%m|\%v)'''),  # c format specifiers
     regex.compile(r'''(\\n|\\t|\\r)'''),  # escape codes
     regex.compile(r'''(://)'''),  # url
-    regex.compile(r''':[^:]*:'''),  # :something:
     regex.compile(r'''</?\w+>'''),  # xml or html tag
     regex.compile(r'''[,\.]\s'''),  # comma space or dot space
     regex.compile(r'''[\$\@]\(\w+\)'''),  # interpolation
     regex.compile(r'''[\)\}\],\(\[\{]$'''),
-    regex.compile(r'''\$\('''),
+    regex.compile(r'''(\$\(|\$\w+->)'''),  # php
     regex.compile(r'''\$php'''),
     regex.compile(r'''\):?$'''),  # ends in ')' or '):'
     regex.compile(r'''\*\.'''),
     regex.compile(r'''\.(dll|exe|so|doc|pdf|hml|css|js|gif|png|jpg|jpeg|sh)'''),
-    regex.compile(r'''\.[^\.]*\.'''),  # version number
+    regex.compile(r'''\d+\.\d+\.\d+'''),  # version number
     regex.compile(r'''\[^\\]*\\'''),  # windows path
     regex.compile(r'''\\[ux][0-9a-f]{2}'''),  # unicode or hex char
     regex.compile(r'''(^\s|\s[^\s]*\s|\s\|\s|\s{4})'''),  # spaces; probably text
@@ -179,20 +225,31 @@ non_password_regexes = [
     regex.compile(r'''^[0-9:./ ]$'''),  # date/time or version number
     regex.compile(r'''^[^a-z]+$'''),  # entirely non alpha
     regex.compile(r'''^\$\w+$'''),
-    regex.compile(r'''(^false$|^sha1-|^sha256-|^sha512-|^split$|^string\.|^this\.|^true$|^user\.|^xml|^xsi)'''),
+    regex.compile(r'''^([a-z0-9][a-z0-9-_]{1,80}\.){2,}[a-z_]{1,14}$'''),  # looks like a fully qualified domain name
+    regex.compile(r'''^(\}|\$\{|!join|false$|sha1-|sha256-|sha512-|split$|string\.|this\.|true$|user\.|xml|xsi)'''),  # begins with
     regex.compile(r'''_[^_]*_'''),
-    regex.compile(r'''^(any|await|hash|new|nil|none|null|&gt)$'''),  # entire password is x
-    regex.compile(r'''(border|click|focus|scroll|keydown|keyup|margin|_pass|passwd|password|pwd|resize|width|height|value)$'''),  # ends with
-    regex.compile(r'''(api.*key|bearer|cdata|client|config|credentials|data\s*-|digest|either|enter\s|error|example|function)'''),
-    regex.compile(r'''(general|\.get|href|html|http|image|index|json|lambda|length|md5|mm:ss)'''),
-    regex.compile(r'''(passphrase|\Wpassword\W|placeholder|plaintext|redacted|secret|settings|string|text/|tlsv|token|type|uint|utf-8|video|xml|yyyy)'''),
+    regex.compile(r'''^('.*'|".*"|\$.*;|\\.*"|any|\$auth;|alias|await|hash|keyfile|new|nil|none|null|null;|pwd|user:pass|&gt)$'''),  # entire password is x
+    regex.compile(r'''(\}|/|border|click|comments|focus|scroll|keydown|keyup|margin|pwd|resize|width|height|value)$'''),  # ends with
+    regex.compile(r'''(address|after|against|already|api.*key|associated|attribute|authentication|bearer|cannot)'''),
+    regex.compile(r'''(cdata|client|config|connect|contained|credentials|could|data\s*-|digest|either|element|enter\s|error|exists|extends|false|format|function)'''),
+    regex.compile(r'''(general|\.get|href|html|http|image|inactive|index|indicating|input|invalid|json|lambda|length|localhost|matches|md5|method|missing|mm:ss)'''),
+    regex.compile(r'''(option|passes|passphrase|\Wpassword\W|placeholder|plaintext|portion|property|provided|recovery|redacted|secret|settings|sha-1|should|source)'''),
+    regex.compile(r'''(string|text/|tlsv|token|true|type|uint|user_id|user_|username|utf-8|validation|value|var\.|video|wasn't|which|whose|xml|yyyy)'''),
+]
+
+# These regexes detect common 'placeholder' passwords used in test scripts that may not present a security risk (but then again, they may...)
+non_password_regexes_strict = [
+    regex.compile(r'''(changeme|dummy|email|example|passwd|password|pswd|sample|secret)'''),
 ]
 
 
 def get_passwords_from_line(fname, line):
     results = []
 
-    for pwd_regex, rule_id, score, files_include in pwd_rules:
+    for pwd_regex, rule_id, result_type, files_include in pwd_rules:
+        if not douser:
+            if result_type == 'USER':
+                continue
         if files_include:
             if not files_include.search(fname):
                 continue  # this rule doesn't apply to this file
@@ -208,7 +265,7 @@ def get_passwords_from_line(fname, line):
             g1 = groups[0] if len(groups) > 0 else ''
             g2 = groups[1] if len(groups) > 1 else ''
             g3 = groups[2] if len(groups) > 2 else ''
-            results = results + [(rule_id, prefix + g1, g2, g3, score)]
+            results = results + [(rule_id, prefix + g1, g2, g3, result_type)]
             remaining = g3
             prefix = g1 + g2
             if len(prefix) > 200: prefix = prefix[-200:]  # noqa
@@ -219,7 +276,15 @@ def is_not_a_password(pwd):
     # pwd is interpolation string, web rgb code, unicode char etc
     for npregex in non_password_regexes:
         if npregex.search(pwd.lower()):
+            if vvv:
+                eprint('Not a password: \'' + pwd + '\' because it matches regex \'' + str(npregex) + '\'')
             return True
+    if not placeholder:
+        for npregex in non_password_regexes_strict:
+            if npregex.search(pwd.lower()):
+                if vvv:
+                    eprint('(Placeholder) Not a password: \'' + pwd + '\' because it matches regex \'' + str(npregex) + '\'')
+                return True
     return False
 
 
@@ -277,17 +342,19 @@ def check_line_password(fname, text):
 
         results = get_passwords_from_line(fname, text)
 
-        for rule_id, prefix, pwd, suffix, starting_score in results:
+        for rule_id, prefix, pwd, suffix, result_type in results:
             # check conditions under which we stop scoring the candidate password
             # allow very short passwords only if they're very common and bad (taken from the top1000 password list)
             if len(pwd) < 5: continue  # noqa
             if len(pwd) > 200: continue  # noqa
             if 'publickeytoken' in prefix.lower(): continue  # noqa
-            if 'example' in prefix.lower() or 'example' in suffix.lower(): continue  # noqa
+            # if 'example' in prefix.lower() or 'example' in suffix.lower(): continue  # noqa
             # if has_non_ascii(pwd): continue  # noqa
-            if is_not_a_password(pwd) and not pwd in SHORT_BAD_PASSWORDS: continue  # noqa # ignore known non-password patterns
-            outputs = outputs + [(rule_id, prefix + ':' + pwd + ':' + suffix, starting_score)]
-
+            if is_not_a_password(pwd) and pwd not in SHORT_BAD_PASSWORDS:
+                continue  # noqa # ignore known non-password patterns
+            outputs = outputs + [(rule_id, prefix + ':' + pwd + ':' + suffix, result_type)]
+            if not allow_duplicates:
+                break
         return outputs
 
     except Exception as e:
@@ -320,12 +387,9 @@ def write_result(result_msg):
 
 def do_line_cred_check(fname, line, line_num):
     try:
-        fmt = '{fname}:{line_num}:{g0}'
         results = check_line_password(fname, line)
-        for rule_id, result, score in results:  # noqa
-            score_str = '%02d' % score
-            g0 = 'Rule:' + str(rule_id) + ':' + result
-            msg = fmt.format(fname=fname, line_num=line_num, score_str=score_str, g0=g0)
+        for rule_id, result, type in results:  # noqa
+            msg = f"{fname}:{line_num}:{type}:Rule:{str(rule_id)}:{result}"
             write_result(msg)  # noqa
 
     except Exception as e:
@@ -363,18 +427,29 @@ def do_checks():
 
 def syntax():
     eprint(
-        '''code-cred-scan.py : Code Credential Scanning Tool [ by Chris Anley ]
+        '''ccs.py : Code Credential Scanning Tool [ by Chris Anley ]
         Syntax: 
+
         Run from code root directory. Output is to stdout, errors and 'verbose' messages are to stderr.
-        code-cred-scan.py [options]
+
+        The default is to return fewer false-positives; use '-everything' for lots of false positives
+
+        "Result Type" is USER (for a username/email/account id), or PASSWORD (for a password, auth token, cryptographic key)
+        Password hashes and encrypted passwords are generally crackable, and are reported as 'PASSWORD'
+
+        ccs.py [options]
         -a   : check all files, including binaries (i.e. files containing invalid utf-8 chars)
+        -dupes : report all hits for a single line (default is to only report the first hit)
+        -nosuppress : ignore suppression comments such as # noqa, at line and file level 
+        -douser : Run USERNAME checks as well as PASSWORD / KEY checks
+        -everything : Get all possible creds; equivalent to -nosuppress -douser -ns -sa -placeholder
+        -ns  : no skip : don't skip files/directories that are irrelevant, like test, /vendor/, /node_modules/, .zip etc
         -p   : print progress
+        -sa  : scan all files, not just recommended / code files
+        -placeholder : Allow some likely 'placeholder' false positives, like 'password', 'example', 'dummy'
         -v   : quite verbose
         -vv  : annoyingly verbose
         -vvv : pointlessly verbose
-        -ns  : no skip : don't skip files/directories that are irrelevant, like test, /vendor/, /node_modules/, .zip etc
-        -sa  : scan all files, not just recommended / code files
-        -nosuppress : ignore suppression comments such as # noqa, at line and file level 
         ''')
 
 
@@ -387,10 +462,13 @@ sa = False
 sc = False
 print_progress = False
 nosuppress = False
+allow_duplicates = False
+placeholder = False
+douser = False
 
 
 def do_main():
-    global a, v, vv, vvv, ns, sa, sc, print_progress, nosuppress
+    global a, v, vv, vvv, ns, sa, sc, print_progress, nosuppress, allow_duplicates, placeholder, douser
     argc = len(sys.argv)
     argv = sys.argv
 
@@ -426,7 +504,18 @@ def do_main():
             print_progress = True
         if argv[i] == '-nosuppress':
             nosuppress = True
-
+        if argv[i] == '-dupes':
+            allow_duplicates = True
+        if argv[i] == '-placeholder':
+            placeholder = True
+        if argv[i] == '-douser':
+            douser = True
+        if argv[i] == '-everything':
+            douser = True
+            nosuppress = True
+            ns = True
+            sa = True
+            placeholder = True
     do_checks()
 
 
@@ -437,4 +526,3 @@ def signal_handler(sig, frame):  # noqa
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
     do_main()
-
