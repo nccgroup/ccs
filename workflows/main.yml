@@ -1,0 +1,14 @@
+# Example workflow to run ccs on the current repository
+# Note - this implies that you have copied ccs.py to 'scripts/ccs.py' in your repository
+name: run ccs on repo
+on:
+  push:
+    branches:
+    - main
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - run: ./scripts/ccs.py
+      
